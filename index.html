@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR Scanner v1.0</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f0f2f5;
+  color: #222;
+  min-height: 100vh;
+}
+.container { max-width: 560px; margin: 0 auto; padding: 20px 16px; }
+h1 { text-align: center; font-size: 24px; color: #1a1a2e; margin: 20px 0 4px; }
+.version { text-align: center; color: #1976d2; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 24px; }
+
+#reader {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+#reader video { border-radius: 12px; }
+
+.controls { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+.btn {
+  padding: 10px 24px; border: none; border-radius: 6px;
+  font-size: 14px; cursor: pointer; font-weight: 500;
+}
+.btn-primary { background: #1976d2; color: #fff; }
+.btn-primary:hover { background: #1565c0; }
+.btn-danger { background: #d32f2f; color: #fff; }
+.btn-danger:hover { background: #b71c1c; }
+.btn-secondary { background: #e0e0e0; color: #333; }
+.btn-secondary:hover { background: #d0d0d0; }
+.btn:disabled { background: #ccc; color: #999; cursor: not-allowed; }
+
+.result-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 16px;
+  display: none;
+}
+.result-card.show { display: block; }
+
+.result-label { font-size: 12px; color: #888; margin-bottom: 8px; }
+.result-text {
+  font-size: 16px;
+  word-break: break-all;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.result-text a { color: #1976d2; }
+
+.result-actions { display: flex; gap: 8px; }
+
+.history { margin-top: 24px; }
+.history h3 { font-size: 14px; color: #888; margin-bottom: 12px; }
+.history-item {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.history-item .text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 8px;
+}
+.history-item a { color: #1976d2; text-decoration: none; }
+
+#status {
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+  margin: 8px 0;
+  min-height: 20px;
+}
+
+.empty { color: #aaa; font-size: 15px; text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>📷 QR Scanner</h1>
+  <div class="version">v1.0</div>
+  <p class="subtitle">用鏡頭掃描 QR Code，自動辨識內容</p>
+
+  <div id="reader"></div>
+  <div id="status"></div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="startBtn" onclick="startScan()">▶ 開始掃描</button>
+    <button class="btn btn-danger" id="stopBtn" onclick="stopScan()" disabled>⏹ 停止</button>
+  </div>
+
+  <div class="result-card" id="resultCard">
+    <div class="result-label">掃描結果</div>
+    <div class="result-text" id="resultText"></div>
+    <div class="result-actions">
+      <button class="btn btn-secondary" onclick="copyResult()">📋 複製</button>
+      <button class="btn btn-primary" id="openBtn" onclick="openResult()" style="display:none">🔗 開啟連結</button>
+    </div>
+  </div>
+
+  <div class="history" id="historySection" style="display:none">
+    <h3>掃描記錄</h3>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<script>
+const readerDiv = document.getElementById('reader');
+const statusDiv = document.getElementById('status');
+const resultCard = document.getElementById('resultCard');
+const resultText = document.getElementById('resultText');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const openBtn = document.getElementById('openBtn');
+
+let scanner = null;
+let lastResult = '';
+
+function startScan() {
+  statusDiv.textContent = '啟動相機中...';
+  scanner = new Html5Qrcode('reader');
+
+  scanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 250, height: 250 } },
+    onScanSuccess,
+    onScanFailure
+  ).then(() => {
+    statusDiv.textContent = '掃描中... 將 QR Code 對準框內';
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  }).catch(err => {
+    statusDiv.textContent = '❌ 無法啟動相機：' + err;
+  });
+}
+
+function stopScan() {
+  if (scanner) {
+    scanner.stop().then(() => {
+      statusDiv.textContent = '已停止';
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+  }
+}
+
+function onScanSuccess(text) {
+  if (text === lastResult) return; // Avoid duplicate
+  lastResult = text;
+
+  // Vibrate if available
+  if (navigator.vibrate) navigator.vibrate(100);
+
+  // Show result
+  resultCard.classList.add('show');
+  const isUrl = /^https?:\/\//i.test(text);
+  if (isUrl) {
+    resultText.innerHTML = `<a href="${text}" target="_blank" rel="noopener">${text}</a>`;
+    openBtn.style.display = '';
+    openBtn.onclick = () => window.open(text, '_blank');
+  } else {
+    resultText.textContent = text;
+    openBtn.style.display = 'none';
+  }
+
+  statusDiv.textContent = '✅ 掃描成功！';
+
+  // Add to history
+  addToHistory(text, isUrl);
+}
+
+function onScanFailure() {
+  // Silent - keep scanning
+}
+
+function copyResult() {
+  navigator.clipboard.writeText(lastResult).then(() => {
+    statusDiv.textContent = '✅ 已複製！';
+  });
+}
+
+// History
+function getHistory() {
+  return JSON.parse(localStorage.getItem('qr-scan-history') || '[]');
+}
+
+function addToHistory(text, isUrl) {
+  const history = getHistory();
+  if (history.length > 0 && history[0].text === text) return; // Skip duplicate
+  history.unshift({ text, isUrl, time: Date.now() });
+  if (history.length > 20) history.pop();
+  localStorage.setItem('qr-scan-history', JSON.stringify(history));
+  renderHistory();
+}
+
+function renderHistory() {
+  const history = getHistory();
+  if (history.length === 0) return;
+  document.getElementById('historySection').style.display = '';
+  document.getElementById('historyList').innerHTML = history.map(h => {
+    const display = h.text.length > 40 ? h.text.slice(0, 40) + '...' : h.text;
+    const link = h.isUrl ? `<a href="${h.text}" target="_blank" rel="noopener">${display}</a>` : `<span>${display}</span>`;
+    return `<div class="history-item"><span class="text">${link}</span></div>`;
+  }).join('');
+}
+
+renderHistory();
+</script>
+</body>
+</html>
