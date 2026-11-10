@@ -53,9 +53,11 @@ body {
   flex: 1;
   font-size: 15px;
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 完整顯示結果（含多行內容），太長時在結果列內捲動 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 .result-inner .text a { color: #2e7d32; text-decoration: none; }
 
@@ -94,6 +96,7 @@ body {
   cursor: pointer;
   font-weight: 500;
 }
+.btn:disabled { opacity: 0.6; cursor: default; }
 .btn-scan { background: #1976d2; color: #fff; }
 .btn-scan:hover { background: #1565c0; }
 .btn-scan.running { background: #d32f2f; }
@@ -118,7 +121,7 @@ body {
 
 <div class="top-bar">
   <h1>📷 QR Scanner</h1>
-  <span class="ver">v1.4</span>
+  <span class="ver">v1.5</span>
 </div>
 
 <div class="result-banner" id="resultBanner">
@@ -132,7 +135,7 @@ body {
 <div id="status"></div>
 
 <div class="bar">
-  <button class="btn btn-scan" id="scanBtn">停止</button>
+  <button class="btn btn-scan" id="scanBtn">開始</button>
   <button class="btn btn-copy" id="copyBtn" style="display:none">複製</button>
   <button class="btn btn-open" id="openBtn" style="display:none">開啟</button>
 </div>
@@ -153,28 +156,36 @@ window.addEventListener('load', () => { setTimeout(startScan, 300); });
 
 function toggleScan() { scanning ? stopScan() : startScan(); }
 
+// 啟動／停止進行中先停用按鈕，避免連按開出第二個鏡頭串流而關不掉
 function startScan() {
+  scanBtn.disabled = true;
   statusDiv.textContent = '啟動中...';
-  scanner = new Html5Qrcode('reader');
-  scanner.start(
-    { facingMode: 'environment' },
-    { fps: 10, qrbox: { width: 200, height: 200 } },
-    onSuccess, () => {}
-  ).then(() => {
+  // 放進 then 裡，CDN 沒載到時 new 丟的錯誤也會進 catch 顯示出來
+  Promise.resolve().then(() => {
+    scanner = new Html5Qrcode('reader');
+    return scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 200, height: 200 } },
+      onSuccess, () => {}
+    );
+  }).then(() => {
     scanning = true;
     statusDiv.textContent = '掃描中';
     scanBtn.textContent = '停止';
     scanBtn.classList.add('running');
-  }).catch(err => { statusDiv.textContent = '❌ ' + err; });
+  }).catch(err => { statusDiv.textContent = '❌ ' + err; })
+    .finally(() => { scanBtn.disabled = false; });
 }
 
 function stopScan() {
-  if (scanner) scanner.stop().then(() => {
+  scanBtn.disabled = true;
+  scanner.stop().then(() => {
     scanning = false;
     statusDiv.textContent = '已停止';
     scanBtn.textContent = '開始';
     scanBtn.classList.remove('running');
-  }).catch(() => {});
+  }).catch(err => { statusDiv.textContent = '❌ 停止失敗：' + err; })
+    .finally(() => { scanBtn.disabled = false; });
 }
 
 function onSuccess(text) {
